@@ -1,0 +1,32 @@
+{
+  "port": 8080,
+  "admin_username": "admin",
+  "admin_password": "admin123",
+  "auth_secret": "replace_with_a_secure_random_secret_string",
+  "rules": [
+    {
+      "id": "sample-api",
+      "name": "第三方天气 API",
+      "slug": "weather",
+      "target_url": "https://api.open-meteo.com",
+      "strip_prefix": true,
+      "inject_base": false,
+      "pass_host": false,
+      "enabled": true,
+      "created_at": 1700000000,
+      "updated_at": 1700000000
+    },
+    {
+      "id": "sample-web",
+      "name": "内网管理看板",
+      "slug": "dashboard",
+      "target_url": "http://192.168.1.100:3000",
+      "strip_prefix": true,
+      "inject_base": true,
+      "pass_host": false,
+      "enabled": true,
+      "created_at": 1700000000,
+      "updated_at": 1700000000
+    }
+  ]
+}

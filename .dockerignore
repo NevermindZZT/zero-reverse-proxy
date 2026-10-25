@@ -1,0 +1,8 @@
+.git
+.github
+data/
+*.tmp
+zero-reverse-proxy
+*.test
+.vscode
+.idea

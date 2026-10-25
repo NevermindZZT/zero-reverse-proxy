@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zero Reverse Proxy - 控制台</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <style>
+    [v-cloak] { display: none; }
+    .glass { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(10px); }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen antialiased">
+  <div id="app" v-cloak>
+    <!-- 顶部导航栏 -->
+    <header class="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white font-bold text-xl shadow-md shadow-indigo-100">
+            ⚡
+          </div>
+          <div>
+            <span class="text-lg font-bold bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">Zero Reverse Proxy</span>
+            <span class="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200">v1.0</span>
+          </div>
+        </div>
+
+        <!-- 登录状态信息 -->
+        <div v-if="isLoggedIn" class="flex items-center space-x-4">
+          <div class="hidden sm:flex items-center text-xs text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 mr-2 animate-pulse"></span>
+            已配置 <strong class="mx-1 text-slate-800">{{ rules.length }}</strong> 条规则
+          </div>
+          <div class="relative group">
+            <button class="flex items-center space-x-2 text-sm text-slate-600 hover:text-slate-900 focus:outline-none">
+              <span class="w-8 h-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs">
+                {{ user.username ? user.username.slice(0, 2).toUpperCase() : 'AD' }}
+              </span>
+              <span class="font-medium hidden md:inline">{{ user.username }}</span>
+            </button>
+          </div>
+          <button @click="showPasswordModal = true" class="text-xs text-slate-600 hover:text-indigo-600 px-2.5 py-1.5 rounded-md hover:bg-slate-100 transition">
+            修改密码
+          </button>
+          <button @click="logout" class="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2.5 py-1.5 rounded-md transition font-medium">
+            退出登录
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- 主体内容 -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <!-- 1. 未登录：登录卡片 -->
+      <div v-if="!isLoggedIn" class="max-w-md mx-auto mt-12">
+        <div class="bg-white p-8 rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-200">
+          <div class="text-center mb-6">
+            <div class="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto text-2xl mb-3">
+              🔒
+            </div>
+            <h2 class="text-2xl font-bold text-slate-900">管理员登录</h2>
+            <p class="text-xs text-slate-500 mt-1">请输入管理员账号和密码以进入控制台</p>
+          </div>
+
+          <form @submit.prevent="login" class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">用户名</label>
+              <input v-model="loginForm.username" type="text" required placeholder="admin"
+                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">密码</label>
+              <input v-model="loginForm.password" type="password" required placeholder="••••••••"
+                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+            </div>
+            <div v-if="loginError" class="p-3 rounded-lg bg-rose-50 text-rose-600 text-xs border border-rose-200">
+              {{ loginError }}
+            </div>
+            <button type="submit" :disabled="loggingIn"
+              class="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm transition shadow-md shadow-indigo-100 disabled:opacity-50">
+              {{ loggingIn ? '登录中...' : '立即登录' }}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- 2. 已登录：管理控制台 -->
+      <div v-else class="space-y-6">
+        <!-- 头部操作区 -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <div>
+            <h1 class="text-xl font-bold text-slate-900">反向代理路由规则</h1>
+            <p class="text-xs text-slate-500 mt-0.5">不通过多级域名，统一以 <code class="bg-slate-100 px-1 py-0.5 rounded text-indigo-600 font-mono">/p/{别名}/</code> 路径前缀反向代理各个目标服务。</p>
+          </div>
+          <div class="flex items-center space-x-3">
+            <div class="relative">
+              <input v-model="searchQuery" type="text" placeholder="搜索名称、别名或目标..."
+                class="w-48 sm:w-64 pl-8 pr-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <span class="absolute left-2.5 top-2.5 text-slate-400 text-xs">🔍</span>
+            </div>
+            <button @click="openCreateModal"
+              class="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-md shadow-indigo-100 transition">
+              <span>+</span>
+              <span>添加规则</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 规则卡片列表 -->
+        <div v-if="filteredRules.length === 0" class="text-center py-16 bg-white rounded-2xl border border-slate-200">
+          <div class="text-4xl mb-3">📭</div>
+          <h3 class="text-sm font-semibold text-slate-800">暂无反向代理规则</h3>
+          <p class="text-xs text-slate-400 mt-1">点击右上角的“添加规则”创建你的第一个反代目标吧</p>
+        </div>
+
+        <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div v-for="rule in filteredRules" :key="rule.id"
+            class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition flex flex-col justify-between"
+            :class="{ 'opacity-60': !rule.enabled }">
+            
+            <div>
+              <!-- 标题行与开关 -->
+              <div class="flex items-start justify-between">
+                <div>
+                  <h3 class="font-bold text-slate-900 text-base flex items-center gap-2">
+                    {{ rule.name }}
+                    <span v-if="!rule.enabled" class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">已禁用</span>
+                  </h3>
+                  <div class="text-xs text-slate-400 mt-0.5 font-mono">ID: {{ rule.id }}</div>
+                </div>
+                <button @click="toggleRule(rule)"
+                  :class="rule.enabled ? 'bg-indigo-600' : 'bg-slate-300'"
+                  class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none">
+                  <span :class="rule.enabled ? 'translate-x-4' : 'translate-x-0'"
+                    class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+                </button>
+              </div>
+
+              <!-- 访问前缀 -->
+              <div class="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                <div class="text-[11px] font-semibold text-slate-500 mb-1">代理访问入口</div>
+                <div class="flex items-center justify-between font-mono text-xs text-indigo-700 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
+                  <span class="truncate">/p/{{ rule.slug }}/</span>
+                  <div class="flex items-center space-x-1 ml-2">
+                    <button @click="copyProxyURL(rule.slug)" title="复制完整URL" class="text-slate-400 hover:text-indigo-600 p-1">
+                      📋
+                    </button>
+                    <a :href="'/p/' + rule.slug + '/'" target="_blank" title="在新标签页打开" class="text-slate-400 hover:text-indigo-600 p-1">
+                      ↗️
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 目标地址 -->
+              <div class="mt-3 text-xs">
+                <span class="text-slate-500 font-medium">目标服务:</span>
+                <div class="font-mono text-slate-700 mt-0.5 truncate bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-100" :title="rule.target_url">
+                  {{ rule.target_url }}
+                </div>
+              </div>
+
+              <!-- 特性标签 -->
+              <div class="mt-3 flex flex-wrap gap-1.5">
+                <span v-if="rule.strip_prefix" class="text-[10px] px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
+                  剥离前缀
+                </span>
+                <span v-if="rule.inject_base" class="text-[10px] px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200 font-medium">
+                  Web兼容(Base注入)
+                </span>
+                <span v-if="rule.pass_host" class="text-[10px] px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+                  透传Host
+                </span>
+              </div>
+
+              <!-- 测试连通性结果展示 -->
+              <div v-if="testResults[rule.id]" class="mt-3 p-2 rounded-lg text-xs"
+                :class="testResults[rule.id].reachable ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'">
+                <div class="font-semibold flex items-center justify-between">
+                  <span>{{ testResults[rule.id].reachable ? '✅ 可访问 (' + testResults[rule.id].status + ')' : '❌ 访问失败' }}</span>
+                  <span class="text-[11px] font-mono">{{ testResults[rule.id].latency_ms }} ms</span>
+                </div>
+                <div v-if="testResults[rule.id].error" class="text-[11px] mt-0.5 truncate">{{ testResults[rule.id].error }}</div>
+              </div>
+            </div>
+
+            <!-- 卡片底部操作按钮 -->
+            <div class="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+              <button @click="testRule(rule)" :disabled="testingRuleId === rule.id"
+                class="text-indigo-600 hover:text-indigo-800 font-medium disabled:opacity-50">
+                {{ testingRuleId === rule.id ? '测速中...' : '测试连通性' }}
+              </button>
+              <div class="flex items-center space-x-2">
+                <button @click="openEditModal(rule)" class="text-slate-600 hover:text-indigo-600 font-medium">
+                  编辑
+                </button>
+                <button @click="deleteRule(rule)" class="text-rose-600 hover:text-rose-800 font-medium">
+                  删除
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 使用指南卡片 -->
+        <div class="bg-indigo-50/50 rounded-2xl border border-indigo-100 p-6 mt-8">
+          <h3 class="text-sm font-bold text-indigo-900 mb-2 flex items-center gap-2">
+            💡 使用指南与原理解释
+          </h3>
+          <div class="text-xs text-indigo-800/80 space-y-2">
+            <p>1. <strong>访问路径</strong>：每个规则绑定一个唯一的 Slug（别名），客户端通过 <code class="bg-white/80 px-1 py-0.5 rounded font-mono text-indigo-900">http://当前主机:端口/p/{别名}/路径...</code> 进行访问。</p>
+            <p>2. <strong>剥离前缀 (Strip Prefix)</strong>：默认开启。当访问 <code class="bg-white/80 px-1 py-0.5 rounded font-mono">/p/mysvc/api/data</code> 时，会自动将 <code class="bg-white/80 px-1 py-0.5 rounded font-mono">/api/data</code> 拼接到目标地址后端转发。</p>
+            <p>3. <strong>Web 界面与绝对路径回退 (Referer Fallback)</strong>：代理带界面的 Web 站点时，前端绝对路径静态资源（如 <code class="bg-white/80 px-1 py-0.5 rounded font-mono">/static/bundle.js</code>）在加载时，本系统会自动检测请求来源的 Referer 头，将其智能路由回对应的目标服务，彻底解决单域名下静态资源 404 的问题！</p>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- 弹窗：添加 / 编辑规则 Modal -->
+    <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+      <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
+        <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+          <h3 class="text-base font-bold text-slate-900">{{ isEditing ? '编辑代理规则' : '添加代理规则' }}</h3>
+          <button @click="closeModal" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+        </div>
+
+        <form @submit.prevent="saveRule" class="space-y-4 mt-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">规则名称</label>
+            <input v-model="form.name" type="text" placeholder="例如：用户中心微服务 或 内网控制台"
+              class="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">
+              路径别名 (Slug) <span class="text-rose-500">*</span>
+            </label>
+            <div class="relative flex items-center">
+              <span class="absolute left-3 font-mono text-xs text-slate-400">/p/</span>
+              <input v-model="form.slug" type="text" required placeholder="user-center"
+                pattern="^[a-zA-Z0-9_-]{1,64}$"
+                class="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-300 text-xs font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1">仅允许字母、数字、短横线与下划线。生成的访问路径形如 <code class="text-indigo-600 font-mono">/p/{{ form.slug || 'xxx' }}/</code></p>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">
+              目标地址 (Target URL) <span class="text-rose-500">*</span>
+            </label>
+            <input v-model="form.target_url" type="url" required placeholder="http://192.168.1.100:8080 或 https://api.github.com"
+              class="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            <p class="text-[11px] text-slate-400 mt-1">必须包含 http:// 或 https://</p>
+          </div>
+
+          <div class="pt-2 border-t border-slate-100 space-y-3">
+            <div class="text-xs font-semibold text-slate-700">转发特性配置</div>
+
+            <label class="flex items-center space-x-2.5 cursor-pointer">
+              <input v-model="form.strip_prefix" type="checkbox" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
+              <span class="text-xs text-slate-700 font-medium">剥离路径前缀 (Strip Prefix，推荐开启)</span>
+            </label>
+
+            <label class="flex items-center space-x-2.5 cursor-pointer">
+              <input v-model="form.inject_base" type="checkbox" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
+              <span class="text-xs text-slate-700 font-medium">Web 页面支持：HTML 注入 &lt;base&gt; 标签 (增强网页代理兼容性)</span>
+            </label>
+
+            <label class="flex items-center space-x-2.5 cursor-pointer">
+              <input v-model="form.pass_host" type="checkbox" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
+              <span class="text-xs text-slate-700 font-medium">透传客户端原始 Host 请求头 (默认关闭，使用目标 Host)</span>
+            </label>
+          </div>
+
+          <div v-if="modalError" class="p-2.5 rounded-lg bg-rose-50 text-rose-600 text-xs border border-rose-200">
+            {{ modalError }}
+          </div>
+
+          <div class="flex items-center justify-end space-x-3 pt-4 border-t border-slate-100">
+            <button type="button" @click="closeModal" class="px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-600 hover:bg-slate-50 transition">
+              取消
+            </button>
+            <button type="submit" :disabled="saving"
+              class="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-md shadow-indigo-100 transition disabled:opacity-50">
+              {{ saving ? '保存中...' : '保存规则' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- 弹窗：修改密码 Modal -->
+    <div v-if="showPasswordModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+      <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
+        <h3 class="text-base font-bold text-slate-900 mb-4">修改管理员密码</h3>
+        <form @submit.prevent="updatePassword" class="space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">旧密码</label>
+            <input v-model="pwdForm.old_password" type="password" required
+              class="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">新密码 (至少6位)</label>
+            <input v-model="pwdForm.new_password" type="password" required minlength="6"
+              class="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+          </div>
+          <div v-if="pwdError" class="p-2 rounded bg-rose-50 text-rose-600 text-xs border border-rose-200">
+            {{ pwdError }}
+          </div>
+          <div class="flex items-center justify-end space-x-2 pt-3">
+            <button type="button" @click="showPasswordModal = false" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs">取消</button>
+            <button type="submit" class="px-4 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold">保存新密码</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { createApp, ref, computed, onMounted } = Vue;
+
+    createApp({
+      setup() {
+        const isLoggedIn = ref(false);
+        const user = ref({});
+        const rules = ref([]);
+        const searchQuery = ref('');
+        const loggingIn = ref(false);
+        const loginError = ref('');
+        const loginForm = ref({ username: 'admin', password: '' });
+
+        const showModal = ref(false);
+        const isEditing = ref(false);
+        const saving = ref(false);
+        const modalError = ref('');
+        const form = ref({
+          id: '',
+          name: '',
+          slug: '',
+          target_url: '',
+          strip_prefix: true,
+          inject_base: true,
+          pass_host: false,
+          enabled: true
+        });
+
+        const showPasswordModal = ref(false);
+        const pwdError = ref('');
+        const pwdForm = ref({ old_password: '', new_password: '' });
+
+        const testingRuleId = ref('');
+        const testResults = ref({});
+
+        const filteredRules = computed(() => {
+          if (!searchQuery.value) return rules.value;
+          const q = searchQuery.value.toLowerCase();
+          return rules.value.filter(r => 
+            (r.name && r.name.toLowerCase().includes(q)) ||
+            (r.slug && r.slug.toLowerCase().includes(q)) ||
+            (r.target_url && r.target_url.toLowerCase().includes(q))
+          );
+        });
+
+        const fetchMe = async () => {
+          try {
+            const res = await fetch('/api/auth/me');
+            if (res.ok) {
+              const data = await res.json();
+              if (data.code === 0) {
+                user.value = data.data;
+                isLoggedIn.value = true;
+                fetchRules();
+                return;
+              }
+            }
+            isLoggedIn.value = false;
+          } catch (e) {
+            isLoggedIn.value = false;
+          }
+        };
+
+        const fetchRules = async () => {
+          try {
+            const res = await fetch('/api/rules');
+            if (res.ok) {
+              const data = await res.json();
+              if (data.code === 0) {
+                rules.value = data.data || [];
+              }
+            }
+          } catch (e) {
+            console.error('Failed to fetch rules', e);
+          }
+        };
+
+        const login = async () => {
+          loginError.value = '';
+          loggingIn.value = true;
+          try {
+            const res = await fetch('/api/auth/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(loginForm.value)
+            });
+            const data = await res.json();
+            if (res.ok && data.code === 0) {
+              user.value = data.data;
+              isLoggedIn.value = true;
+              fetchRules();
+            } else {
+              loginError.value = data.message || '登录失败，请检查账号密码';
+            }
+          } catch (e) {
+            loginError.value = '网络请求失败，请稍后重试';
+          } finally {
+            loggingIn.value = false;
+          }
+        };
+
+        const logout = async () => {
+          try {
+            await fetch('/api/auth/logout', { method: 'POST' });
+          } catch (e) {}
+          isLoggedIn.value = false;
+          user.value = {};
+        };
+
+        const openCreateModal = () => {
+          isEditing.value = false;
+          modalError.value = '';
+          form.value = {
+            id: '',
+            name: '',
+            slug: '',
+            target_url: '',
+            strip_prefix: true,
+            inject_base: true,
+            pass_host: false,
+            enabled: true
+          };
+          showModal.value = true;
+        };
+
+        const openEditModal = (rule) => {
+          isEditing.value = true;
+          modalError.value = '';
+          form.value = JSON.parse(JSON.stringify(rule));
+          showModal.value = true;
+        };
+
+        const closeModal = () => {
+          showModal.value = false;
+        };
+
+        const saveRule = async () => {
+          modalError.value = '';
+          saving.value = true;
+          try {
+            const url = isEditing.value ? ('/api/rules/' + form.value.id) : '/api/rules';
+            const method = isEditing.value ? 'PUT' : 'POST';
+            const res = await fetch(url, {
+              method,
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(form.value)
+            });
+            const data = await res.json();
+            if (res.ok && data.code === 0) {
+              closeModal();
+              fetchRules();
+            } else {
+              modalError.value = data.message || '保存失败';
+            }
+          } catch (e) {
+            modalError.value = '请求失败，请稍后重试';
+          } finally {
+            saving.value = false;
+          }
+        };
+
+        const toggleRule = async (rule) => {
+          const newStatus = !rule.enabled;
+          try {
+            const res = await fetch('/api/rules/' + rule.id + '/toggle', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ enabled: newStatus })
+            });
+            if (res.ok) {
+              rule.enabled = newStatus;
+            }
+          } catch (e) {}
+        };
+
+        const deleteRule = async (rule) => {
+          if (!confirm('确定要删除反向代理规则 [' + rule.name + '] 吗？此操作无法撤销。')) {
+            return;
+          }
+          try {
+            const res = await fetch('/api/rules/' + rule.id, { method: 'DELETE' });
+            if (res.ok) {
+              fetchRules();
+            }
+          } catch (e) {}
+        };
+
+        const testRule = async (rule) => {
+          testingRuleId.value = rule.id;
+          try {
+            const res = await fetch('/api/rules/test', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ target_url: rule.target_url })
+            });
+            const data = await res.json();
+            if (res.ok && data.code === 0) {
+              testResults.value[rule.id] = data.data;
+            } else {
+              testResults.value[rule.id] = { reachable: false, error: data.message };
+            }
+          } catch (e) {
+            testResults.value[rule.id] = { reachable: false, error: e.message };
+          } finally {
+            testingRuleId.value = '';
+          }
+        };
+
+        const copyProxyURL = (slug) => {
+          const fullURL = window.location.origin + '/p/' + slug + '/';
+          navigator.clipboard.writeText(fullURL).then(() => {
+            alert('已复制代理入口链接：' + fullURL);
+          }).catch(() => {
+            prompt('请手动复制链接：', fullURL);
+          });
+        };
+
+        const updatePassword = async () => {
+          pwdError.value = '';
+          try {
+            const res = await fetch('/api/auth/password', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(pwdForm.value)
+            });
+            const data = await res.json();
+            if (res.ok && data.code === 0) {
+              alert('密码修改成功，请使用新密码重新登录');
+              showPasswordModal.value = false;
+              logout();
+            } else {
+              pwdError.value = data.message || '修改密码失败';
+            }
+          } catch (e) {
+            pwdError.value = '请求失败';
+          }
+        };
+
+        onMounted(() => {
+          fetchMe();
+        });
+
+        return {
+          isLoggedIn, user, rules, searchQuery, filteredRules,
+          loggingIn, loginError, loginForm,
+          showModal, isEditing, saving, modalError, form,
+          showPasswordModal, pwdError, pwdForm,
+          testingRuleId, testResults,
+          login, logout, openCreateModal, openEditModal, closeModal, saveRule,
+          toggleRule, deleteRule, testRule, copyProxyURL, updatePassword
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>

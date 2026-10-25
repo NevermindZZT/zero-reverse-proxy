@@ -1,0 +1,17 @@
+services:
+  zero-reverse-proxy:
+    image: zero-reverse-proxy:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zero-reverse-proxy
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - ADMIN_USER=admin
+      - ADMIN_PASS=admin123
+      - CONFIG_PATH=/data/config.json
+    volumes:
+      - ./data:/data
