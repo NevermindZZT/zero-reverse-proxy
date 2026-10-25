@@ -138,6 +138,19 @@ func (s *Storage) UpdateAdminPassword(newPassword string) error {
 	return s.saveLocked()
 }
 
+// SetAdminCredentials updates admin credentials
+func (s *Storage) SetAdminCredentials(username, password string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if username != "" {
+		s.config.AdminUsername = username
+	}
+	if password != "" {
+		s.config.AdminPassword = password
+	}
+	return s.saveLocked()
+}
+
 // ListRules returns all rules
 func (s *Storage) ListRules() []Rule {
 	s.mu.RLock()

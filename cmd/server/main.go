@@ -34,24 +34,20 @@ func main() {
 
 	// 3. Override config from environment variables if provided
 	cfg := store.GetConfig()
-	modified := false
 	if envPort := os.Getenv("PORT"); envPort != "" {
 		if p, err := strconv.Atoi(envPort); err == nil && p > 0 {
 			cfg.Port = p
-			modified = true
 		}
 	}
-	if envUser := os.Getenv("ADMIN_USER"); envUser != "" {
-		cfg.AdminUsername = envUser
-		modified = true
+	adminUser := os.Getenv("ADMIN_USER")
+	if adminUser == "" {
+		adminUser = "admin"
 	}
-	if envPass := os.Getenv("ADMIN_PASS"); envPass != "" {
-		cfg.AdminPassword = envPass
-		modified = true
+	adminPass := os.Getenv("ADMIN_PASS")
+	if adminPass == "" {
+		adminPass = "admin123"
 	}
-	if modified {
-		_ = store.UpdateAdminPassword(cfg.AdminPassword)
-	}
+	_ = store.SetAdminCredentials(adminUser, adminPass)
 
 	// 4. Initialize Proxy Engine and sync rules
 	engine := proxy.NewEngine()
@@ -94,7 +90,7 @@ func main() {
 	})
 
 	// 7. Start HTTP server
-	addr := fmt.Sprintf(":%d", cfg.Port)
+	addr := fmt.Sprintf("0.0.0.0:%d", cfg.Port)
 	server := &http.Server{
 		Addr:         addr,
 		Handler:      masterHandler,
