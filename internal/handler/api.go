@@ -24,6 +24,10 @@ func NewAPIHandler(store *storage.Storage) *APIHandler {
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 			},
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				// Don't follow redirects in health check; 3xx responses indicate upstream is reachable
+				return http.ErrUseLastResponse
+			},
 		},
 	}
 }

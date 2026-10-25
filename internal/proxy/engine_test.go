@@ -56,7 +56,7 @@ func TestProxy_RoutingAndFeatures(t *testing.T) {
 		t.Errorf("unexpected body: %s", rec.Body.String())
 	}
 
-	// Test 2: Redirect Location rewriting
+	// Test 2: Redirect Location rewriting (relative and upstream absolute URL)
 	req = httptest.NewRequest("GET", "http://proxy.local/p/app/redirect", nil)
 	rec = httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
@@ -65,6 +65,12 @@ func TestProxy_RoutingAndFeatures(t *testing.T) {
 	}
 	if loc := rec.Header().Get("Location"); loc != "/p/app/login" {
 		t.Errorf("expected rewritten location /p/app/login, got %s", loc)
+	}
+
+	// Test 2.1: Absolute URL redirect pointing to upstream target itself
+	absRedirectLoc := rewriteLocation(upstream.URL+"/", rule)
+	if absRedirectLoc != "/p/app/" {
+		t.Errorf("expected rewritten location /p/app/, got %s", absRedirectLoc)
 	}
 
 	// Test 3: Cookie Path rewriting

@@ -1,4 +1,12 @@
-# Zero Reverse Proxy ⚡
+# Zero Reverse Proxy
+
+<p align="left">
+  <a href="https://github.com"><img src="https://img.shields.io/badge/version-v1.0.0-blue.svg?style=flat-square" alt="Version"></a>
+  <a href="https://github.com"><img src="https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square&logo=githubactions" alt="Build Status"></a>
+  <a href="https://golang.org"><img src="https://img.shields.io/badge/Go-1.23+-00ADD8.svg?style=flat-square&logo=go" alt="Go Version"></a>
+  <a href="https://hub.docker.com"><img src="https://img.shields.io/badge/Docker-Ready-2496ED.svg?style=flat-square&logo=docker" alt="Docker"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg?style=flat-square" alt="License"></a>
+</p>
 
 **Zero Reverse Proxy** 是一个轻量级、自包含、高性能的动态反向代理工具。基于 Go 语言开发，专门解决**不使用多级二级域名**、在单一域名或单端口下反向代理多个后端目标（API 及 Web 页面）的需求。
 

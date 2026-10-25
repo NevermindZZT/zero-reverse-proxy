@@ -139,7 +139,7 @@ func (e *Engine) createReverseProxy(rp *ruleProxy) *httputil.ReverseProxy {
 		ModifyResponse: func(resp *http.Response) error {
 			// 1. Rewrite Location header for redirects
 			if loc := resp.Header.Get("Location"); loc != "" {
-				resp.Header.Set("Location", rewriteLocation(loc, rule, resp.Request))
+				resp.Header.Set("Location", rewriteLocation(loc, rule))
 			}
 
 			// 2. Rewrite Cookie Path and Domain
@@ -273,33 +273,57 @@ func reqScheme(r *http.Request) string {
 	return "http"
 }
 
-func rewriteLocation(loc string, rule storage.Rule, req *http.Request) string {
+func rewriteLocation(loc string, rule storage.Rule) string {
 	prefix := "/p/" + rule.Slug
 	u, err := url.Parse(loc)
 	if err != nil {
 		return loc
 	}
 
-	// If relative redirect (e.g. /login or login)
-	if u.Host == "" {
-		if strings.HasPrefix(u.Path, "/") {
-			u.Path = prefix + u.Path
-		} else {
-			u.Path = prefix + "/" + u.Path
-		}
-		return u.String()
-	}
-
-	// If redirect points to the upstream host itself, rewrite host and add prefix
 	targetURL, _ := url.Parse(rule.TargetURL)
-	if targetURL != nil && strings.EqualFold(u.Host, targetURL.Host) {
-		u.Scheme = reqScheme(req)
-		u.Host = req.Host
-		u.Path = prefix + u.Path
-		return u.String()
+
+	// Check if this redirect is internal to the target (same host or relative path)
+	isInternal := false
+	if u.Host == "" {
+		isInternal = true
+	} else if targetURL != nil && strings.EqualFold(u.Host, targetURL.Host) {
+		isInternal = true
 	}
 
-	return loc
+	if !isInternal {
+		// External redirect (e.g. OAuth to external domain), keep intact
+		return loc
+	}
+
+	path := u.Path
+	if path == "." || path == "./" {
+		path = "/"
+	} else if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	var newPath string
+	if strings.HasPrefix(strings.ToLower(path), strings.ToLower(prefix)) {
+		newPath = path
+	} else {
+		newPath = singleJoiningSlash(prefix, path)
+	}
+
+	if newPath == prefix {
+		newPath = prefix + "/"
+	}
+
+	var result strings.Builder
+	result.WriteString(newPath)
+	if u.RawQuery != "" {
+		result.WriteString("?")
+		result.WriteString(u.RawQuery)
+	}
+	if u.Fragment != "" {
+		result.WriteString("#")
+		result.WriteString(u.Fragment)
+	}
+	return result.String()
 }
 
 func rewriteCookie(rawCookie string, rule storage.Rule) string {
@@ -317,6 +341,11 @@ func rewriteCookie(rawCookie string, rule storage.Rule) string {
 		if strings.HasPrefix(lower, "path=") {
 			hasPath = true
 			newParts = append(newParts, "Path=/p/"+rule.Slug)
+			continue
+		}
+		if strings.HasPrefix(lower, "samesite=") {
+			// Relax SameSite=Strict to Lax to ensure cookie persists across subpath navigations
+			newParts = append(newParts, "SameSite=Lax")
 			continue
 		}
 		newParts = append(newParts, trimmed)
