@@ -65,17 +65,14 @@
 
 ## 🚀 快速启动
 
-### 方式一：使用 Docker Compose（推荐）
+### 方式一：使用 Docker Compose 直接拉取镜像运行（最便捷）
 
-1. 创建项目目录并保存 `docker-compose.yml`：
+只需下载或新建 `docker-compose.hub.yml` 配置文件，无需本地安装 Go 或构建源码：
 
 ```yaml
 services:
   zero-reverse-proxy:
-    image: zero-reverse-proxy:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: nevermindzzt/zero-reverse-proxy:latest
     container_name: zero-reverse-proxy
     restart: unless-stopped
     ports:
@@ -89,11 +86,16 @@ services:
       - ./data:/data
 ```
 
-2. 启动服务：
+启动服务：
 
 ```bash
-docker compose up -d
+docker compose -f docker-compose.hub.yml up -d
 ```
+
+> 💡 如果希望在本地基于源码构建镜像运行，可以使用项目自带的 `docker-compose.yml`：
+> ```bash
+> docker compose up -d --build
+> ```
 
 3. 打开浏览器访问控制台：
    - 地址：`http://localhost:8080/admin/`
@@ -112,7 +114,7 @@ docker run -d \
   -e ADMIN_PASS=admin123 \
   -v $(pwd)/data:/data \
   --restart unless-stopped \
-  zero-reverse-proxy:latest
+  nevermindzzt/zero-reverse-proxy:latest
 ```
 
 ---
@@ -194,9 +196,9 @@ git push origin v1.0.0
 ```
 
 3. GitHub Actions 将自动构建并发布：
-   - `<你的用户名>/zero-reverse-proxy:v1.0.0`
-   - `<你的用户名>/zero-reverse-proxy:v1.0`
-   - `<你的用户名>/zero-reverse-proxy:latest`
+   - `nevermindzzt/zero-reverse-proxy:v1.0.0`
+   - `nevermindzzt/zero-reverse-proxy:v1.0`
+   - `nevermindzzt/zero-reverse-proxy:latest`
 
 ---
 
