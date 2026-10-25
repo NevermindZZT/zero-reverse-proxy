@@ -57,8 +57,17 @@
 
     <!-- 主体内容 -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <!-- 1. 未登录：登录卡片 -->
-      <div v-if="!isLoggedIn" class="max-w-md mx-auto mt-12">
+      <!-- 0. 初始身份未决且无本地凭据时：轻量微动效，杜绝登录卡片闪烁 -->
+      <div v-if="authChecking && !isLoggedIn" class="flex flex-col items-center justify-center py-28 text-slate-400">
+        <svg class="w-7 h-7 animate-spin text-indigo-600 mb-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
+          <path d="M12 2a10 10 0 0 1 10 10" />
+        </svg>
+        <span class="text-xs text-slate-500 font-medium">正在进入控制台...</span>
+      </div>
+
+      <!-- 1. 确认未登录：才呈现登录卡片 -->
+      <div v-else-if="!isLoggedIn" class="max-w-md mx-auto mt-12">
         <div class="bg-white p-8 rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-200">
           <div class="text-center mb-6">
             <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white mx-auto mb-4 shadow-lg shadow-indigo-200/50 p-3">
@@ -396,8 +405,10 @@
 
     createApp({
       setup() {
-        const isLoggedIn = ref(false);
-        const user = ref({});
+        const cachedLogin = localStorage.getItem('zrp_logged_in') === '1';
+        const authChecking = ref(true);
+        const isLoggedIn = ref(cachedLogin);
+        const user = ref(JSON.parse(localStorage.getItem('zrp_user') || '{}'));
         const rules = ref([]);
         const searchQuery = ref('');
         const loggingIn = ref(false);
@@ -445,13 +456,21 @@
               if (data.code === 0) {
                 user.value = data.data;
                 isLoggedIn.value = true;
-                fetchRules();
+                localStorage.setItem('zrp_logged_in', '1');
+                localStorage.setItem('zrp_user', JSON.stringify(data.data));
+                await fetchRules();
                 return;
               }
             }
             isLoggedIn.value = false;
+            localStorage.removeItem('zrp_logged_in');
+            localStorage.removeItem('zrp_user');
           } catch (e) {
-            isLoggedIn.value = false;
+            if (!cachedLogin) {
+              isLoggedIn.value = false;
+            }
+          } finally {
+            authChecking.value = false;
           }
         };
 
@@ -482,7 +501,9 @@
             if (res.ok && data.code === 0) {
               user.value = data.data;
               isLoggedIn.value = true;
-              fetchRules();
+              localStorage.setItem('zrp_logged_in', '1');
+              localStorage.setItem('zrp_user', JSON.stringify(data.data));
+              await fetchRules();
             } else {
               loginError.value = data.message || '登录失败，请检查账号密码';
             }
@@ -499,6 +520,8 @@
           } catch (e) {}
           isLoggedIn.value = false;
           user.value = {};
+          localStorage.removeItem('zrp_logged_in');
+          localStorage.removeItem('zrp_user');
         };
 
         const openCreateModal = () => {
@@ -636,7 +659,7 @@
         });
 
         return {
-          isLoggedIn, user, rules, searchQuery, filteredRules,
+          authChecking, isLoggedIn, user, rules, searchQuery, filteredRules,
           loggingIn, loginError, loginForm,
           showModal, isEditing, saving, modalError, form,
           showPasswordModal, pwdError, pwdForm,
