@@ -200,7 +200,7 @@ func (e *Engine) Match(r *http.Request) (*ruleProxy, string, bool) {
 	}
 
 	// 2. Referer fallback match: when a web page loads root-relative assets (e.g. /static/bundle.js)
-	if !strings.HasPrefix(path, "/admin") && !strings.HasPrefix(path, "/api") {
+	if !strings.HasPrefix(path, "/admin") && !strings.HasPrefix(path, "/api") && !strings.HasPrefix(path, "/b") {
 		referer := r.Header.Get("Referer")
 		if referer != "" {
 			if refURL, err := url.Parse(referer); err == nil {
@@ -221,31 +221,69 @@ func (e *Engine) Match(r *http.Request) (*ruleProxy, string, bool) {
 	return nil, "", false
 }
 
-// ServeHTTP dispatches matching proxy requests
+// ServeHTTP dispatches matching proxy requests (both /p/ rules and /b/ browser mode)
 func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) bool {
-	rp, slug, matched := e.Match(r)
-	if !matched {
-		if slug != "" && strings.HasPrefix(r.URL.Path, "/p/") {
+	path := r.URL.Path
+
+	// 1. Browser mode direct request: /b/http://... or /b/https://...
+	if strings.HasPrefix(path, "/b/") || path == "/b" {
+		targetURL, subPath, err := parseBrowserURL(path, r.URL.RawQuery, r.RequestURI)
+		if err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.WriteHeader(http.StatusNotFound)
-			fmt.Fprintf(w, "<h3>404 Rule Not Found</h3><p>Proxy rule for slug <code>%s</code> is not configured or disabled.</p>", slug)
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "<div style='font-family:sans-serif;padding:24px;'><h3>400 Bad Request</h3><p>无效的浏览器目标地址: %v</p><p><a href='/admin/'>返回控制台</a></p></div>", err)
 			return true
 		}
-		return false
-	}
-
-	// Ensure /p/{slug} ends with slash for proper relative path resolution in browsers
-	if r.URL.Path == "/p/"+slug {
-		target := "/p/" + slug + "/"
-		if r.URL.RawQuery != "" {
-			target += "?" + r.URL.RawQuery
-		}
-		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+		e.serveBrowser(w, r, targetURL, subPath)
 		return true
 	}
 
-	rp.proxy.ServeHTTP(w, r)
-	return true
+	// 2. Named rule proxy match: /p/{slug}
+	rp, slug, matched := e.Match(r)
+	if matched {
+		// Ensure /p/{slug} ends with slash for proper relative path resolution in browsers
+		if r.URL.Path == "/p/"+slug {
+			target := "/p/" + slug + "/"
+			if r.URL.RawQuery != "" {
+				target += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+			return true
+		}
+
+		rp.proxy.ServeHTTP(w, r)
+		return true
+	}
+
+	// 3. Browser mode Referer fallback for root-relative static assets
+	if !strings.HasPrefix(path, "/admin") && !strings.HasPrefix(path, "/api") {
+		referer := r.Header.Get("Referer")
+		if referer != "" {
+			if refURL, err := url.Parse(referer); err == nil && strings.HasPrefix(refURL.Path, "/b/") {
+				if targetURL, _, err := parseBrowserURL(refURL.Path, refURL.RawQuery, refURL.RequestURI()); err == nil {
+					e.serveBrowser(w, r, targetURL, path)
+					return true
+				}
+			}
+		}
+
+		// 4. Browser mode Cookie fallback for requests without referer
+		if c, err := r.Cookie(BrowserCookieTarget); err == nil && c.Value != "" {
+			if targetURL, err := url.Parse(c.Value); err == nil && targetURL.Host != "" {
+				e.serveBrowser(w, r, targetURL, path)
+				return true
+			}
+		}
+	}
+
+	if slug != "" && strings.HasPrefix(r.URL.Path, "/p/") {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintf(w, "<h3>404 Rule Not Found</h3><p>Proxy rule for slug <code>%s</code> is not configured or disabled.</p>", slug)
+		return true
+	}
+
+	return false
 }
 
 func singleJoiningSlash(a, b string) string {
