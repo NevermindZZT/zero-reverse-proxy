@@ -518,7 +518,7 @@
 
         const fetchMe = async () => {
           try {
-            const res = await fetch('/api/auth/me');
+            const res = await fetch('/admin/api/auth/me');
             if (res.ok) {
               const data = await res.json();
               if (data.code === 0) {
@@ -544,7 +544,7 @@
 
         const fetchRules = async () => {
           try {
-            const res = await fetch('/api/rules');
+            const res = await fetch('/admin/api/rules');
             if (res.ok) {
               const data = await res.json();
               if (data.code === 0) {
@@ -560,7 +560,7 @@
           loginError.value = '';
           loggingIn.value = true;
           try {
-            const res = await fetch('/api/auth/login', {
+            const res = await fetch('/admin/api/auth/login', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(loginForm.value)
@@ -584,7 +584,7 @@
 
         const logout = async () => {
           try {
-            await fetch('/api/auth/logout', { method: 'POST' });
+            await fetch('/admin/api/auth/logout', { method: 'POST' });
           } catch (e) {}
           isLoggedIn.value = false;
           user.value = {};
@@ -623,7 +623,7 @@
           modalError.value = '';
           saving.value = true;
           try {
-            const url = isEditing.value ? ('/api/rules/' + form.value.id) : '/api/rules';
+            const url = isEditing.value ? ('/admin/api/rules/' + form.value.id) : '/admin/api/rules';
             const method = isEditing.value ? 'PUT' : 'POST';
             const res = await fetch(url, {
               method,
@@ -647,7 +647,7 @@
         const toggleRule = async (rule) => {
           const newStatus = !rule.enabled;
           try {
-            const res = await fetch('/api/rules/' + rule.id + '/toggle', {
+            const res = await fetch('/admin/api/rules/' + rule.id + '/toggle', {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ enabled: newStatus })
@@ -663,7 +663,7 @@
             return;
           }
           try {
-            const res = await fetch('/api/rules/' + rule.id, { method: 'DELETE' });
+            const res = await fetch('/admin/api/rules/' + rule.id, { method: 'DELETE' });
             if (res.ok) {
               fetchRules();
             }
@@ -673,7 +673,7 @@
         const testRule = async (rule) => {
           testingRuleId.value = rule.id;
           try {
-            const res = await fetch('/api/rules/test', {
+            const res = await fetch('/admin/api/rules/test', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ target_url: rule.target_url })
@@ -754,7 +754,7 @@
         const updatePassword = async () => {
           pwdError.value = '';
           try {
-            const res = await fetch('/api/auth/password', {
+            const res = await fetch('/admin/api/auth/password', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(pwdForm.value)

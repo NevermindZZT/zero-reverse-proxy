@@ -78,8 +78,8 @@ func TestProxy_RoutingAndFeatures(t *testing.T) {
 	rec = httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
 	cookie := rec.Header().Get("Set-Cookie")
-	if !strings.Contains(cookie, "Path=/p/app") {
-		t.Errorf("expected Cookie path to be /p/app, got %s", cookie)
+	if !strings.Contains(cookie, "Path=/") {
+		t.Errorf("expected Cookie path to be /, got %s", cookie)
 	}
 
 	// Test 4: HTML <base> injection
@@ -101,5 +101,29 @@ func TestProxy_RoutingAndFeatures(t *testing.T) {
 	body, _ := io.ReadAll(rec.Body)
 	if !strings.Contains(string(body), "app.js") {
 		t.Errorf("unexpected fallback response: %s", string(body))
+	}
+
+	// Test 6: Fallback for root-relative API request (e.g. /api/hello), ensuring it is NOT intercepted by proxy
+	apiFallbackReq := httptest.NewRequest("GET", "http://proxy.local/api/hello?q=fallback", nil)
+	apiFallbackReq.Header.Set("Referer", "http://proxy.local/p/app/page")
+	rec = httptest.NewRecorder()
+	matched = engine.ServeHTTP(rec, apiFallbackReq)
+	if !matched || rec.Code != http.StatusOK {
+		t.Fatalf("expected api fallback to match upstream, got matched=%v, code=%d", matched, rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "hello from upstream, q=fallback") {
+		t.Errorf("unexpected api fallback body: %s", rec.Body.String())
+	}
+
+	// Test 7: Cookie-based fallback for requests without referer
+	cookieFallbackReq := httptest.NewRequest("GET", "http://proxy.local/api/hello?q=cookie", nil)
+	cookieFallbackReq.AddCookie(&http.Cookie{Name: RuleCookieSlug, Value: "app"})
+	rec = httptest.NewRecorder()
+	matched = engine.ServeHTTP(rec, cookieFallbackReq)
+	if !matched || rec.Code != http.StatusOK {
+		t.Fatalf("expected cookie fallback to match upstream, got matched=%v, code=%d", matched, rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "hello from upstream, q=cookie") {
+		t.Errorf("unexpected cookie fallback body: %s", rec.Body.String())
 	}
 }

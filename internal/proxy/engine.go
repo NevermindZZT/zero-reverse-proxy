@@ -137,6 +137,18 @@ func (e *Engine) createReverseProxy(rp *ruleProxy) *httputil.ReverseProxy {
 			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
+			// 0. Set current active rule cookie for subresource and api fallback
+			resp.Header.Add("Set-Cookie", (&http.Cookie{
+				Name:     RuleCookieSlug,
+				Value:    rule.Slug,
+				Path:     "/",
+				SameSite: http.SameSiteLaxMode,
+			}).String())
+
+			// 0.1 Remove restrictive frame and csp headers to enhance web proxy compatibility
+			resp.Header.Del("X-Frame-Options")
+			resp.Header.Del("Content-Security-Policy")
+
 			// 1. Rewrite Location header for redirects
 			if loc := resp.Header.Get("Location"); loc != "" {
 				resp.Header.Set("Location", rewriteLocation(loc, rule))
@@ -177,11 +189,13 @@ func (e *Engine) createReverseProxy(rp *ruleProxy) *httputil.ReverseProxy {
 	return p
 }
 
-// Match matches a request to a rule proxy
+const (
+	RuleCookieSlug = "zrp_current_slug"
+)
+
+// Match matches a request to a named rule proxy by explicit /p/{slug} prefix
 func (e *Engine) Match(r *http.Request) (*ruleProxy, string, bool) {
 	path := r.URL.Path
-
-	// 1. Direct path match: /p/{slug} or /p/{slug}/*
 	if strings.HasPrefix(path, "/p/") || path == "/p" {
 		trimmed := strings.TrimPrefix(path, "/p/")
 		if trimmed == "" {
@@ -198,30 +212,10 @@ func (e *Engine) Match(r *http.Request) (*ruleProxy, string, bool) {
 		}
 		return nil, slug, false
 	}
-
-	// 2. Referer fallback match: when a web page loads root-relative assets (e.g. /static/bundle.js)
-	if !strings.HasPrefix(path, "/admin") && !strings.HasPrefix(path, "/api") && !strings.HasPrefix(path, "/b") {
-		referer := r.Header.Get("Referer")
-		if referer != "" {
-			if refURL, err := url.Parse(referer); err == nil {
-				if strings.HasPrefix(refURL.Path, "/p/") {
-					parts := strings.SplitN(strings.TrimPrefix(refURL.Path, "/p/"), "/", 2)
-					slug := parts[0]
-					e.mu.RLock()
-					rp, ok := e.rules[strings.ToLower(slug)]
-					e.mu.RUnlock()
-					if ok {
-						return rp, slug, true
-					}
-				}
-			}
-		}
-	}
-
 	return nil, "", false
 }
 
-// ServeHTTP dispatches matching proxy requests (both /p/ rules and /b/ browser mode)
+// ServeHTTP dispatches matching proxy requests (both /p/ rules, /b/ browser mode, and fallbacks)
 func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) bool {
 	path := r.URL.Path
 
@@ -255,9 +249,27 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 
-	// 3. Browser mode Referer fallback for root-relative static assets
-	if !strings.HasPrefix(path, "/admin") && !strings.HasPrefix(path, "/api") {
+	// 3. Sub-resource fallback matching (Static assets, API calls, fonts, etc.)
+	// Do NOT exclude /api: Web applications frequently call root-relative APIs (e.g. /api/v1/auth/me)
+	if !strings.HasPrefix(path, "/admin") && !strings.HasPrefix(path, "/b/") {
 		referer := r.Header.Get("Referer")
+
+		// 3.1 Check Named Rule Referer fallback: Referer contains /p/{slug}/...
+		if referer != "" {
+			if refURL, err := url.Parse(referer); err == nil && strings.HasPrefix(refURL.Path, "/p/") {
+				parts := strings.SplitN(strings.TrimPrefix(refURL.Path, "/p/"), "/", 2)
+				refSlug := parts[0]
+				e.mu.RLock()
+				ruleP, ok := e.rules[strings.ToLower(refSlug)]
+				e.mu.RUnlock()
+				if ok {
+					ruleP.proxy.ServeHTTP(w, r)
+					return true
+				}
+			}
+		}
+
+		// 3.2 Check Browser Mode Referer fallback: Referer contains /b/{targetURL}/...
 		if referer != "" {
 			if refURL, err := url.Parse(referer); err == nil && strings.HasPrefix(refURL.Path, "/b/") {
 				if targetURL, _, err := parseBrowserURL(refURL.Path, refURL.RawQuery, refURL.RequestURI()); err == nil {
@@ -267,7 +279,18 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) bool {
 			}
 		}
 
-		// 4. Browser mode Cookie fallback for requests without referer
+		// 3.3 Check Named Rule Cookie fallback: zrp_current_slug
+		if c, err := r.Cookie(RuleCookieSlug); err == nil && c.Value != "" {
+			e.mu.RLock()
+			ruleP, ok := e.rules[strings.ToLower(c.Value)]
+			e.mu.RUnlock()
+			if ok {
+				ruleP.proxy.ServeHTTP(w, r)
+				return true
+			}
+		}
+
+		// 3.4 Check Browser Mode Cookie fallback: zrp_browser_target
 		if c, err := r.Cookie(BrowserCookieTarget); err == nil && c.Value != "" {
 			if targetURL, err := url.Parse(c.Value); err == nil && targetURL.Host != "" {
 				e.serveBrowser(w, r, targetURL, path)
@@ -378,7 +401,7 @@ func rewriteCookie(rawCookie string, rule storage.Rule) string {
 		}
 		if strings.HasPrefix(lower, "path=") {
 			hasPath = true
-			newParts = append(newParts, "Path=/p/"+rule.Slug)
+			newParts = append(newParts, "Path=/")
 			continue
 		}
 		if strings.HasPrefix(lower, "samesite=") {
@@ -389,7 +412,7 @@ func rewriteCookie(rawCookie string, rule storage.Rule) string {
 		newParts = append(newParts, trimmed)
 	}
 	if !hasPath {
-		newParts = append(newParts, "Path=/p/"+rule.Slug)
+		newParts = append(newParts, "Path=/")
 	}
 	return strings.Join(newParts, "; ")
 }

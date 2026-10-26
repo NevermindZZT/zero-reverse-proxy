@@ -90,11 +90,24 @@ func (h *APIHandler) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 
 // RegisterRoutes registers all API routes on a mux
 func (h *APIHandler) RegisterRoutes(mux *http.ServeMux) {
+	// 1. Primary dedicated endpoints under /admin/api/ (no collision with proxied targets)
+	mux.HandleFunc("POST /admin/api/auth/login", h.handleLogin)
+	mux.HandleFunc("POST /admin/api/auth/logout", h.handleLogout)
+	mux.HandleFunc("GET /admin/api/auth/me", h.RequireAuth(h.handleMe))
+	mux.HandleFunc("POST /admin/api/auth/password", h.RequireAuth(h.handleUpdatePassword))
+
+	mux.HandleFunc("GET /admin/api/rules", h.RequireAuth(h.handleListRules))
+	mux.HandleFunc("POST /admin/api/rules", h.RequireAuth(h.handleCreateRule))
+	mux.HandleFunc("PUT /admin/api/rules/{id}", h.RequireAuth(h.handleUpdateRule))
+	mux.HandleFunc("PATCH /admin/api/rules/{id}/toggle", h.RequireAuth(h.handleToggleRule))
+	mux.HandleFunc("DELETE /admin/api/rules/{id}", h.RequireAuth(h.handleDeleteRule))
+	mux.HandleFunc("POST /admin/api/rules/test", h.RequireAuth(h.handleTestConnection))
+
+	// 2. Legacy fallback endpoints for direct /api/... calls (only when no proxy rule matches)
 	mux.HandleFunc("POST /api/auth/login", h.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", h.handleLogout)
 	mux.HandleFunc("GET /api/auth/me", h.RequireAuth(h.handleMe))
 	mux.HandleFunc("POST /api/auth/password", h.RequireAuth(h.handleUpdatePassword))
-
 	mux.HandleFunc("GET /api/rules", h.RequireAuth(h.handleListRules))
 	mux.HandleFunc("POST /api/rules", h.RequireAuth(h.handleCreateRule))
 	mux.HandleFunc("PUT /api/rules/{id}", h.RequireAuth(h.handleUpdateRule))
