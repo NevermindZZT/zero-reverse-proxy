@@ -1,7 +1,7 @@
 # Zero Reverse Proxy
 
 <p align="left">
-  <a href="https://github.com"><img src="https://img.shields.io/badge/version-v1.1.0-blue.svg?style=flat-square" alt="Version"></a>
+  <a href="https://github.com"><img src="https://img.shields.io/badge/version-v1.1.1-blue.svg?style=flat-square" alt="Version"></a>
   <a href="https://github.com"><img src="https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square&logo=githubactions" alt="Build Status"></a>
   <a href="https://golang.org"><img src="https://img.shields.io/badge/Go-1.23+-00ADD8.svg?style=flat-square&logo=go" alt="Go Version"></a>
   <a href="https://hub.docker.com"><img src="https://img.shields.io/badge/Docker-Ready-2496ED.svg?style=flat-square&logo=docker" alt="Docker"></a>
