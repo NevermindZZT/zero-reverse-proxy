@@ -227,7 +227,9 @@ func injectBrowserToolbarAndInterceptors(htmlBytes []byte, targetOrigin string) 
   <span class="badge">Zero Proxy</span>
   <span style="opacity:0.8;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="%s">%s</span>
   <a href="/admin/" target="_blank" title="打开控制台">控制台</a>
-  <button onclick="document.getElementById('zrp-toolbar').remove();" title="隐藏此浮条">✕</button>
+  <button onclick="document.getElementById('zrp-toolbar').remove();" title="隐藏此浮条" style="display:inline-flex;align-items:center;justify-content:center;">
+    <svg style="width:12px;height:12px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+  </button>
 </div>
 <script id="zrp-interceptor">
 (() => {
@@ -235,8 +237,10 @@ func injectBrowserToolbarAndInterceptors(htmlBytes []byte, targetOrigin string) 
   document.addEventListener("click", (e) => {
     const a = e.target.closest("a");
     if (!a || !a.href) return;
+    if (a.closest("#zrp-toolbar")) return; // Do not intercept toolbar controls!
     try {
       const u = new URL(a.href, window.location.href);
+      if (u.pathname.startsWith("/admin")) return; // Allow direct navigation to admin console!
       if (u.origin === window.location.origin) {
         if (!u.pathname.startsWith("/b/")) {
           e.preventDefault();
