@@ -261,7 +261,7 @@
                       </svg>
                     </button>
                     <!-- 打开新标签页按钮 -->
-                    <a :href="'/p/' + rule.slug + '/'" target="_blank" title="在新标签页打开"
+                    <a :href="getRuleProxyPath(rule.slug)" target="_blank" title="在新标签页打开"
                       class="text-slate-400 hover:text-indigo-600 p-1 rounded hover:bg-slate-50 transition">
                       <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
@@ -518,9 +518,22 @@
           );
         });
 
+        const getApiUrl = (endpoint) => {
+          const p = window.location.pathname.replace(/\/+$/, '');
+          const base = p.endsWith('/admin') ? p + '/api' : '/admin/api';
+          const ep = endpoint.startsWith('/') ? endpoint : '/' + endpoint;
+          return base + ep;
+        };
+
+        const getRuleProxyPath = (slug) => {
+          const match = window.location.pathname.match(/^(\/p\/[^\/]+)/);
+          const prefix = match ? match[1] : '';
+          return prefix + '/p/' + slug + '/';
+        };
+
         const fetchMe = async () => {
           try {
-            const res = await fetch('/admin/api/auth/me');
+            const res = await fetch(getApiUrl('/auth/me'));
             if (res.ok) {
               const data = await res.json();
               if (data.code === 0) {
@@ -546,7 +559,7 @@
 
         const fetchRules = async () => {
           try {
-            const res = await fetch('/admin/api/rules');
+            const res = await fetch(getApiUrl('/rules'));
             if (res.ok) {
               const data = await res.json();
               if (data.code === 0) {
@@ -562,7 +575,7 @@
           loginError.value = '';
           loggingIn.value = true;
           try {
-            const res = await fetch('/admin/api/auth/login', {
+            const res = await fetch(getApiUrl('/auth/login'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(loginForm.value)
@@ -586,7 +599,7 @@
 
         const logout = async () => {
           try {
-            await fetch('/admin/api/auth/logout', { method: 'POST' });
+            await fetch(getApiUrl('/auth/logout'), { method: 'POST' });
           } catch (e) {}
           isLoggedIn.value = false;
           user.value = {};
@@ -625,7 +638,7 @@
           modalError.value = '';
           saving.value = true;
           try {
-            const url = isEditing.value ? ('/admin/api/rules/' + form.value.id) : '/admin/api/rules';
+            const url = isEditing.value ? getApiUrl('/rules/' + form.value.id) : getApiUrl('/rules');
             const method = isEditing.value ? 'PUT' : 'POST';
             const res = await fetch(url, {
               method,
@@ -649,7 +662,7 @@
         const toggleRule = async (rule) => {
           const newStatus = !rule.enabled;
           try {
-            const res = await fetch('/admin/api/rules/' + rule.id + '/toggle', {
+            const res = await fetch(getApiUrl('/rules/' + rule.id + '/toggle'), {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ enabled: newStatus })
@@ -665,7 +678,7 @@
             return;
           }
           try {
-            const res = await fetch('/admin/api/rules/' + rule.id, { method: 'DELETE' });
+            const res = await fetch(getApiUrl('/rules/' + rule.id), { method: 'DELETE' });
             if (res.ok) {
               fetchRules();
             }
@@ -675,7 +688,7 @@
         const testRule = async (rule) => {
           testingRuleId.value = rule.id;
           try {
-            const res = await fetch('/admin/api/rules/test', {
+            const res = await fetch(getApiUrl('/rules/test'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ target_url: rule.target_url })
@@ -756,7 +769,7 @@
         const updatePassword = async () => {
           pwdError.value = '';
           try {
-            const res = await fetch('/admin/api/auth/password', {
+            const res = await fetch(getApiUrl('/auth/password'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(pwdForm.value)
@@ -786,7 +799,7 @@
           testingRuleId, testResults, copiedSlug,
           browserInputUrl, browserHistory, openBrowserMode, saveHistoryAsRule, removeHistory, clearHistory,
           login, logout, openCreateModal, openEditModal, closeModal, saveRule,
-          toggleRule, deleteRule, testRule, copyProxyURL, updatePassword
+          toggleRule, deleteRule, testRule, copyProxyURL, updatePassword, getRuleProxyPath
         };
       }
     }).mount('#app');

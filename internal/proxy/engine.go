@@ -115,6 +115,18 @@ func (e *Engine) createReverseProxy(rp *ruleProxy) *httputil.ReverseProxy {
 				req.Host = target.Host
 			}
 
+			// Loop prevention: track proxy hops
+			hops := 0
+			if h := req.Header.Get("X-Zero-Proxy-Hops"); h != "" {
+				hops, _ = strconv.Atoi(h)
+			}
+			if hops >= 10 {
+				// Mark as loop to let ErrorHandler return 508 Loop Detected
+				req.URL.Host = "proxy.loop.detected"
+				return
+			}
+			req.Header.Set("X-Zero-Proxy-Hops", strconv.Itoa(hops+1))
+
 			// Set standard proxy headers
 			if clientIP, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
 				if prior, ok := req.Header["X-Forwarded-For"]; ok {
@@ -125,6 +137,18 @@ func (e *Engine) createReverseProxy(rp *ruleProxy) *httputil.ReverseProxy {
 			}
 			req.Header.Set("X-Forwarded-Proto", reqScheme(req))
 			req.Header.Set("X-Forwarded-Host", req.Host)
+
+			// Clean internal prefix from outbound Referer header to prevent referer-based loops
+			if ref := req.Header.Get("Referer"); ref != "" {
+				if u, err := url.Parse(ref); err == nil && strings.HasPrefix(u.Path, prefix) {
+					cleanPath := strings.TrimPrefix(u.Path, prefix)
+					if cleanPath == "" {
+						cleanPath = "/"
+					}
+					u.Path = cleanPath
+					req.Header.Set("Referer", u.String())
+				}
+			}
 
 			// Apply custom headers
 			for k, v := range rule.Headers {
@@ -182,6 +206,11 @@ func (e *Engine) createReverseProxy(rp *ruleProxy) *httputil.ReverseProxy {
 		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
 			log.Printf("[Proxy Error] %s -> %s: %v", req.URL.Path, rule.TargetURL, err)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if req.URL.Host == "proxy.loop.detected" {
+				w.WriteHeader(http.StatusLoopDetected)
+				fmt.Fprintf(w, "<h3>508 Loop Detected</h3><p>Detected recursive proxy loop forwarding to target (%s)</p>", rule.TargetURL)
+				return
+			}
 			w.WriteHeader(http.StatusBadGateway)
 			fmt.Fprintf(w, "<h3>502 Bad Gateway</h3><p>Failed to proxy request to target service (%s): %v</p>", rule.TargetURL, err)
 		},
@@ -249,14 +278,14 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 
-	// 3. Sub-resource fallback matching (Static assets, API calls, fonts, etc.)
-	// Do NOT exclude /api: Web applications frequently call root-relative APIs (e.g. /api/v1/auth/me)
-	if !strings.HasPrefix(path, "/admin") && !strings.HasPrefix(path, "/b/") {
-		referer := r.Header.Get("Referer")
-
-		// 3.1 Check Named Rule Referer fallback: Referer contains /p/{slug}/...
-		if referer != "" {
-			if refURL, err := url.Parse(referer); err == nil && strings.HasPrefix(refURL.Path, "/p/") {
+	// 3. Smart Referer Context Priority:
+	// If the request was triggered by a proxied page (/p/{slug}/... or /b/...), forward it to the target service
+	// EVEN IF the path coincides with internal paths like /admin, /admin/api, etc.!
+	referer := r.Header.Get("Referer")
+	if referer != "" {
+		if refURL, err := url.Parse(referer); err == nil {
+			// 3.1 Named rule page referer (/p/{slug}/...)
+			if strings.HasPrefix(refURL.Path, "/p/") {
 				parts := strings.SplitN(strings.TrimPrefix(refURL.Path, "/p/"), "/", 2)
 				refSlug := parts[0]
 				e.mu.RLock()
@@ -267,38 +296,37 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) bool {
 					return true
 				}
 			}
-		}
 
-		// 3.2 Check Browser Mode Referer fallback: Referer contains /b/{targetURL}/...
-		if referer != "" {
-			if refURL, err := url.Parse(referer); err == nil && strings.HasPrefix(refURL.Path, "/b/") {
+			// 3.2 Browser mode page referer (/b/...)
+			if strings.HasPrefix(refURL.Path, "/b/") {
 				if targetURL, _, err := parseBrowserURL(refURL.Path, refURL.RawQuery, refURL.RequestURI()); err == nil {
 					e.serveBrowser(w, r, targetURL, path)
 					return true
 				}
 			}
 		}
+	}
 
-		// Favicon requests without explicit proxy Referer should NOT fallback to cookie, but serve Zero Proxy's own favicon
-		isFavicon := path == "/favicon.ico" || path == "/favicon.svg"
-		if !isFavicon {
-			// 3.3 Check Named Rule Cookie fallback: zrp_current_slug
-			if c, err := r.Cookie(RuleCookieSlug); err == nil && c.Value != "" {
-				e.mu.RLock()
-				ruleP, ok := e.rules[strings.ToLower(c.Value)]
-				e.mu.RUnlock()
-				if ok {
-					ruleP.proxy.ServeHTTP(w, r)
-					return true
-				}
+	// 4. Fallback for requests without proxy referer:
+	// Protect internal paths: /admin, /b/, and own favicons belong to Zero Reverse Proxy itself when no proxy referer is present
+	isInternalPath := strings.HasPrefix(path, "/admin") || strings.HasPrefix(path, "/b/") || path == "/favicon.ico" || path == "/favicon.svg"
+	if !isInternalPath {
+		// 4.1 Check Named Rule Cookie fallback: zrp_current_slug
+		if c, err := r.Cookie(RuleCookieSlug); err == nil && c.Value != "" {
+			e.mu.RLock()
+			ruleP, ok := e.rules[strings.ToLower(c.Value)]
+			e.mu.RUnlock()
+			if ok {
+				ruleP.proxy.ServeHTTP(w, r)
+				return true
 			}
+		}
 
-			// 3.4 Check Browser Mode Cookie fallback: zrp_browser_target
-			if c, err := r.Cookie(BrowserCookieTarget); err == nil && c.Value != "" {
-				if targetURL, err := url.Parse(c.Value); err == nil && targetURL.Host != "" {
-					e.serveBrowser(w, r, targetURL, path)
-					return true
-				}
+		// 4.2 Check Browser Mode Cookie fallback: zrp_browser_target
+		if c, err := r.Cookie(BrowserCookieTarget); err == nil && c.Value != "" {
+			if targetURL, err := url.Parse(c.Value); err == nil && targetURL.Host != "" {
+				e.serveBrowser(w, r, targetURL, path)
+				return true
 			}
 		}
 	}

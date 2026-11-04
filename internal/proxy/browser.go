@@ -76,6 +76,17 @@ func (e *Engine) serveBrowser(w http.ResponseWriter, r *http.Request, target *ur
 			}
 			req.Host = target.Host
 
+			// Loop prevention: track proxy hops
+			hops := 0
+			if h := req.Header.Get("X-Zero-Proxy-Hops"); h != "" {
+				hops, _ = strconv.Atoi(h)
+			}
+			if hops >= 10 {
+				req.URL.Host = "proxy.loop.detected"
+				return
+			}
+			req.Header.Set("X-Zero-Proxy-Hops", strconv.Itoa(hops+1))
+
 			// Standard proxy headers
 			if clientIP, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
 				req.Header.Set("X-Forwarded-For", clientIP)
@@ -83,6 +94,16 @@ func (e *Engine) serveBrowser(w http.ResponseWriter, r *http.Request, target *ur
 			}
 			req.Header.Set("X-Forwarded-Proto", reqScheme(req))
 			req.Header.Set("X-Forwarded-Host", req.Host)
+
+			// Clean internal /b/ prefix from outbound Referer header
+			if ref := req.Header.Get("Referer"); ref != "" {
+				if u, err := url.Parse(ref); err == nil && strings.HasPrefix(u.Path, "/b/") {
+					if _, sub, err := parseBrowserURL(u.Path, u.RawQuery, u.RequestURI()); err == nil {
+						u.Path = sub
+						req.Header.Set("Referer", u.String())
+					}
+				}
+			}
 
 			// For HTML modification, avoid compression
 			if strings.Contains(req.Header.Get("Accept"), "text/html") {
@@ -137,6 +158,11 @@ func (e *Engine) serveBrowser(w http.ResponseWriter, r *http.Request, target *ur
 		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
 			log.Printf("[Browser Mode Error] %s -> %s: %v", req.URL.Path, target.String(), err)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if req.URL.Host == "proxy.loop.detected" {
+				w.WriteHeader(http.StatusLoopDetected)
+				fmt.Fprintf(w, "<div style=\"font-family:sans-serif;padding:24px;\"><h3>508 Loop Detected</h3><p>检测到循环反向代理请求: <code>%s</code></p><p><a href=\"/admin/\">返回控制台</a></p></div>", target.String())
+				return
+			}
 			w.WriteHeader(http.StatusBadGateway)
 			fmt.Fprintf(w, "<div style=\"font-family:sans-serif;padding:24px;\"><h3>502 Bad Gateway</h3><p>无法代理访问目标地址: <code>%s</code></p><p style=\"color:#666;font-size:12px;\">错误信息: %v</p><p><a href=\"/admin/\">返回控制台</a></p></div>", target.String(), err)
 		},

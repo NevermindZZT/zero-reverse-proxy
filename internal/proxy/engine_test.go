@@ -27,6 +27,8 @@ func TestProxy_RoutingAndFeatures(t *testing.T) {
 		case "/static/app.js":
 			w.Header().Set("Content-Type", "application/javascript")
 			fmt.Fprint(w, "console.log('app.js');")
+		case "/admin/dashboard":
+			fmt.Fprint(w, "admin dashboard of upstream service")
 		default:
 			http.NotFound(w, r)
 		}
@@ -125,5 +127,26 @@ func TestProxy_RoutingAndFeatures(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "hello from upstream, q=cookie") {
 		t.Errorf("unexpected cookie fallback body: %s", rec.Body.String())
+	}
+
+	// Test 8: Path collision resolution: Upstream also has /admin/... paths
+	// 8.1 When Referer indicates request is from proxied page (/p/app/...), it MUST be forwarded to upstream
+	collisionReq := httptest.NewRequest("GET", "http://proxy.local/admin/dashboard", nil)
+	collisionReq.Header.Set("Referer", "http://proxy.local/p/app/page")
+	rec = httptest.NewRecorder()
+	matched = engine.ServeHTTP(rec, collisionReq)
+	if !matched || rec.Code != http.StatusOK {
+		t.Fatalf("expected /admin/dashboard to be forwarded to upstream via referer, got matched=%v, code=%d", matched, rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "admin dashboard of upstream service") {
+		t.Errorf("unexpected upstream admin response: %s", rec.Body.String())
+	}
+
+	// 8.2 When no proxy referer is present, /admin/... should NOT be forwarded, but returned as false for local mux
+	localAdminReq := httptest.NewRequest("GET", "http://proxy.local/admin/dashboard", nil)
+	rec = httptest.NewRecorder()
+	matched = engine.ServeHTTP(rec, localAdminReq)
+	if matched {
+		t.Errorf("expected local /admin/dashboard without proxy referer to return false for local mux")
 	}
 }
