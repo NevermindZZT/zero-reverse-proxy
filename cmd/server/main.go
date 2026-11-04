@@ -73,6 +73,10 @@ func main() {
 		http.Redirect(w, r, "/admin/", http.StatusMovedPermanently)
 	})
 
+	// Favicon handlers on root path
+	mux.HandleFunc("GET /favicon.ico", web.FaviconIcoHandler)
+	mux.HandleFunc("GET /favicon.svg", web.FaviconSvgHandler)
+
 	// Root redirect to /admin/
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/", http.StatusFound)

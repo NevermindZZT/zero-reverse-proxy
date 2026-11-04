@@ -279,22 +279,26 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) bool {
 			}
 		}
 
-		// 3.3 Check Named Rule Cookie fallback: zrp_current_slug
-		if c, err := r.Cookie(RuleCookieSlug); err == nil && c.Value != "" {
-			e.mu.RLock()
-			ruleP, ok := e.rules[strings.ToLower(c.Value)]
-			e.mu.RUnlock()
-			if ok {
-				ruleP.proxy.ServeHTTP(w, r)
-				return true
+		// Favicon requests without explicit proxy Referer should NOT fallback to cookie, but serve Zero Proxy's own favicon
+		isFavicon := path == "/favicon.ico" || path == "/favicon.svg"
+		if !isFavicon {
+			// 3.3 Check Named Rule Cookie fallback: zrp_current_slug
+			if c, err := r.Cookie(RuleCookieSlug); err == nil && c.Value != "" {
+				e.mu.RLock()
+				ruleP, ok := e.rules[strings.ToLower(c.Value)]
+				e.mu.RUnlock()
+				if ok {
+					ruleP.proxy.ServeHTTP(w, r)
+					return true
+				}
 			}
-		}
 
-		// 3.4 Check Browser Mode Cookie fallback: zrp_browser_target
-		if c, err := r.Cookie(BrowserCookieTarget); err == nil && c.Value != "" {
-			if targetURL, err := url.Parse(c.Value); err == nil && targetURL.Host != "" {
-				e.serveBrowser(w, r, targetURL, path)
-				return true
+			// 3.4 Check Browser Mode Cookie fallback: zrp_browser_target
+			if c, err := r.Cookie(BrowserCookieTarget); err == nil && c.Value != "" {
+				if targetURL, err := url.Parse(c.Value); err == nil && targetURL.Host != "" {
+					e.serveBrowser(w, r, targetURL, path)
+					return true
+				}
 			}
 		}
 	}

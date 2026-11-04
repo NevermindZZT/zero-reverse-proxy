@@ -35,6 +35,9 @@ func TestServer_Integration(t *testing.T) {
 	mux.HandleFunc("GET /admin", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/", http.StatusMovedPermanently)
 	})
+	mux.HandleFunc("GET /favicon.ico", web.FaviconIcoHandler)
+	mux.HandleFunc("GET /favicon.svg", web.FaviconSvgHandler)
+
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/", http.StatusFound)
 	})
@@ -76,4 +79,50 @@ func TestServer_Integration(t *testing.T) {
 	if !strings.Contains(string(body), "Zero Reverse Proxy") {
 		t.Errorf("expected HTML content to contain Zero Reverse Proxy, got: %s", string(body))
 	}
+
+	// 3. Test /favicon.ico returns 200 and image/x-icon
+	resp, err = client.Get(ts.URL + "/favicon.ico")
+	if err != nil {
+		t.Fatalf("failed to request /favicon.ico: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 OK from /favicon.ico, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "image/x-icon" {
+		t.Errorf("expected Content-Type image/x-icon, got %s", ct)
+	}
+	body, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if len(body) == 0 {
+		t.Errorf("expected non-empty favicon.ico content")
+	}
+
+	// 4. Test /favicon.svg returns 200 and image/svg+xml
+	resp, err = client.Get(ts.URL + "/favicon.svg")
+	if err != nil {
+		t.Fatalf("failed to request /favicon.svg: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 OK from /favicon.svg, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "image/svg+xml" {
+		t.Errorf("expected Content-Type image/svg+xml, got %s", ct)
+	}
+	body, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if !strings.Contains(string(body), "<svg") {
+		t.Errorf("expected SVG content from /favicon.svg")
+	}
+
+	// 5. Test /favicon.ico with Cookie fallback should still return Zero Proxy favicon
+	icoReq, _ := http.NewRequest("GET", ts.URL+"/favicon.ico", nil)
+	icoReq.AddCookie(&http.Cookie{Name: proxy.RuleCookieSlug, Value: "some-rule"})
+	resp, err = client.Do(icoReq)
+	if err != nil {
+		t.Fatalf("failed to request /favicon.ico with cookie: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 OK from /favicon.ico with cookie, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
 }
